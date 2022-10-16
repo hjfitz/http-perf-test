@@ -1,6 +1,6 @@
-use clap::Parser;
-use std::{fmt, time::{Duration, Instant}};
-use tokio::{sync::mpsc::channel, task};
+use clap::{Parser, ValueEnum};
+use reqwest::{Method, Request, Url, Client};
+use std::{fmt, time::{Duration, Instant}, process::exit};
 
 #[derive(Parser, Debug, Clone)]
 struct Args {
@@ -20,6 +20,7 @@ struct Args {
     #[arg(short = 'x', long)]
     headers: Option<String>,
 
+    // todo: validate
     #[arg(short, long, default_value = "GET")]
     /// HTTP method to use
     method: String,
@@ -31,7 +32,7 @@ struct Args {
 
 #[derive(Debug)]
 struct Results {
-    response_code: u8,
+    response_code: u16,
     elapsed: Duration,
 }
 
@@ -51,10 +52,8 @@ impl Test {
 
 #[derive(Debug)]
 enum Message {
-    Result(String),
-    NextResult(Results),
+    Result(Results),
     Finished,
-    Error(String),
 }
 
 impl fmt::Display for Message {
@@ -75,29 +74,56 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut threads = Vec::new();
 
-    let test_begin_original = Instant::now();
+    let method = match args.method.to_ascii_uppercase().as_str() {
+        "GET" => Method::GET,
+        "POST" => Method::POST,
+        "PATCH" => Method::PATCH,
+        "PUT" => Method::PUT,
+        "DELETE" => Method::DELETE,
+        _ => {
+            println!("Unacceptable method: {}", args.method);
+            exit(1);
+        }
+        
+    };
+
+    let test_begin = Instant::now();
     for n in 0..args.concurrent_requests {
-        let tx_cloned = tx.clone();
+        let tx_thread = tx.clone();
+        let req_url_orig = Url::parse(args.url.as_str()).unwrap().clone();
+        let req_method_orig = method.clone();
         println!("spawning thread {}", n);
         let handle = tokio::spawn(async move {
-            let msg_content = format!("Sent from thread {}", n);
-            let msg = Message::Result(msg_content);
-
-            tx_cloned.send(msg).unwrap();
 
             println!("Spawned thread {}", n);
 
+            let client = Client::new();
+
 
             loop {
+                let req_url = req_url_orig.clone();
+                let req_method = req_method_orig.clone();
                 let now = Instant::now();
-                let since = now.duration_since(test_begin_original);
+                let since = now.duration_since(test_begin);
 
                 // do test
+                let req_begin = Instant::now();
+                let req = Request::new(req_method, req_url);
+                let resp = client.execute(req).await.unwrap();
 
                 // record result
+                let since_req = now.duration_since(req_begin);
+                let result = Results {
+                    response_code: resp.status().as_u16(),
+                    elapsed: since_req,
+                };
+
+                let msg = Message::Result(result);
+                tx_thread.send(msg).unwrap();
+
 
                 if since.as_secs() >= args.test_time.into() {
-                    tx_cloned.send(Message::Finished).unwrap();
+                    tx_thread.send(Message::Finished).unwrap();
                     break
                 }
             }
@@ -108,12 +134,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 
     let mut results = Vec::new();
-    let mut next_results = Vec::new();
     let mut waiting_threads = args.concurrent_requests;
     while let Some(msg) = rx.recv().await {
         match msg {
             Message::Result(result) => results.push(result),
-            Message::NextResult(result) => next_results.push(result),
             Message::Finished => {
                 waiting_threads -= 1;
                 println!("Threads waiting: {}", waiting_threads);
@@ -128,14 +152,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // print results
+    println!("host,status_code,time_millis");
     for result in results {
-        println!("Got msg:");
-        println!("> {}", result);
+        println!("{},{},{}", args.url, result.response_code, result.elapsed.as_micros());
     }
-
-    // cleanup
-
-    println!("{}", threads.len());
 
     Ok(())
 }
