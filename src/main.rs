@@ -1,6 +1,7 @@
-use clap::{Parser, ValueEnum};
-use reqwest::{Method, Request, Url, Client};
-use std::{fmt, time::{Duration, Instant}, process::exit};
+use clap::Parser;
+use reqwest::{Client, Method, Request, Url};
+use std::{fmt, process::exit};
+use tokio::time::{Duration, Instant};
 
 #[derive(Parser, Debug, Clone)]
 struct Args {
@@ -33,7 +34,7 @@ struct Args {
 #[derive(Debug)]
 struct Results {
     response_code: u16,
-    elapsed: Duration,
+    elapsed: u128,
 }
 
 struct Test {
@@ -84,7 +85,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Unacceptable method: {}", args.method);
             exit(1);
         }
-        
     };
 
     let test_begin = Instant::now();
@@ -94,12 +94,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let req_method_orig = method.clone();
         println!("spawning thread {}", n);
         let handle = tokio::spawn(async move {
-
             println!("Spawned thread {}", n);
 
+
             let client = Client::new();
-
-
             loop {
                 let req_url = req_url_orig.clone();
                 let req_method = req_method_orig.clone();
@@ -110,28 +108,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let req_begin = Instant::now();
                 let req = Request::new(req_method, req_url);
                 let resp = client.execute(req).await.unwrap();
+                let req_after = Instant::now();
 
                 // record result
-                let since_req = now.duration_since(req_begin);
+                let since_req = req_after.duration_since(req_begin);
                 let result = Results {
                     response_code: resp.status().as_u16(),
-                    elapsed: since_req,
+                    elapsed: since_req.as_millis(),
                 };
 
                 let msg = Message::Result(result);
                 tx_thread.send(msg).unwrap();
 
-
                 if since.as_secs() >= args.test_time.into() {
                     tx_thread.send(Message::Finished).unwrap();
-                    break
+                    break;
                 }
             }
         });
 
         threads.push(handle);
     }
-
 
     let mut results = Vec::new();
     let mut waiting_threads = args.concurrent_requests;
@@ -141,8 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Message::Finished => {
                 waiting_threads -= 1;
                 println!("Threads waiting: {}", waiting_threads);
-            },
-            _ => {}
+            }
         }
 
         if waiting_threads == 0 {
@@ -155,7 +151,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // print results
     println!("host,status_code,time_millis");
     for result in results {
-        println!("{},{},{}", args.url, result.response_code, result.elapsed.as_micros());
+        println!(
+            "{},{},{}",
+            args.url,
+            result.response_code,
+            result.elapsed,
+        );
     }
 
     Ok(())
