@@ -1,7 +1,7 @@
 use clap::Parser;
-use reqwest::{Client, Method, Request, Url};
+use reqwest::{Client, Method, Request, Url, header::{HeaderMap, HeaderValue, HeaderName}};
 use std::{fmt, process::exit};
-use tokio::time::{Duration, Instant};
+use tokio::time::{Instant};
 
 #[derive(Parser, Debug, Clone)]
 struct Args {
@@ -11,7 +11,7 @@ struct Args {
 
     /// How many requests to send at once
     #[arg(short, long, default_value = "10")]
-    concurrent_requests: u8,
+    concurrent_requests: u16,
 
     /// How long the test should last for (seconds).
     #[arg(short, long, default_value = "30")]
@@ -63,10 +63,32 @@ impl fmt::Display for Message {
     }
 }
 
+fn get_headers(headers_raw: Option<String>) -> Option<HeaderMap> {
+    let mut map = HeaderMap::new();
+
+    if headers_raw.is_none() {
+        return None;
+    }
+
+    let split = headers_raw.unwrap().split(": ").map(String::from).collect::<Vec<_>>();
+
+    if split.len() != 2 {
+        return None;
+    }
+
+    let header_name = HeaderName::from_lowercase(split[0].as_bytes()).unwrap();
+
+    map.insert(header_name, HeaderValue::from_str(&split[1]).unwrap());
+
+    println!("{:?}", map);
+
+    Some(map)
+
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    println!("Hello, world!");
     if args.debug {
         println!("{:#?}", args);
     }
@@ -87,18 +109,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    let full_headers = get_headers(args.headers);
+
     let test_begin = Instant::now();
-    for n in 0..args.concurrent_requests {
+    for _ in 0..args.concurrent_requests {
         let tx_thread = tx.clone();
         let req_url_orig = Url::parse(args.url.as_str()).unwrap().clone();
-        let req_method_orig = method.clone();
-        println!("spawning thread {}", n);
-        let handle = tokio::spawn(async move {
-            println!("Spawned thread {}", n);
 
+        let headers = full_headers.clone().unwrap_or_default();
+
+        let req_method_orig = method.clone();
+        let handle = tokio::spawn(async move {
 
             let client = Client::new();
             loop {
+                let req_headers_raw = headers.clone();
                 let req_url = req_url_orig.clone();
                 let req_method = req_method_orig.clone();
                 let now = Instant::now();
@@ -106,8 +131,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // do test
                 let req_begin = Instant::now();
-                let req = Request::new(req_method, req_url);
-                let resp = client.execute(req).await.unwrap();
+                //let req = Request::new(req_method, req_url);
+                let req = client.request(req_method, req_url);
+                let with_headers = req.headers(req_headers_raw);
+                let ready_req = with_headers.build().unwrap();
+                let resp = client.execute(ready_req).await.unwrap();
                 let req_after = Instant::now();
 
                 // record result
@@ -137,7 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Message::Result(result) => results.push(result),
             Message::Finished => {
                 waiting_threads -= 1;
-                println!("Threads waiting: {}", waiting_threads);
+                println!("Threads waiting to finish: {}", waiting_threads);
             }
         }
 
@@ -147,6 +175,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             rx.close();
         }
     }
+
+    let total_requests = results.len();
 
     // print results
     println!("host,status_code,time_millis");
@@ -158,6 +188,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             result.elapsed,
         );
     }
+
+    let test_end = Instant::now();
+    let since_test = test_end.duration_since(test_begin);
+
+    let since_secs = since_test.as_secs_f64();
+    let total_reqs = total_requests as f64;
+    
+    let tps = total_reqs / since_secs;
+
+    println!();
+    println!("Time taken (seconds): {}", since_test.as_secs());
+    println!("Total requests sent: {}", total_requests);
+    println!("TPS: {}", tps);
 
     Ok(())
 }
