@@ -1,7 +1,11 @@
 use clap::Parser;
-use reqwest::{Client, Method, Request, Url, header::{HeaderMap, HeaderValue, HeaderName}};
-use std::{fmt, process::exit};
-use tokio::time::{Instant};
+use reqwest::{
+    header::{HeaderMap, HeaderName, HeaderValue},
+    Client, Method, Request, Url,
+};
+use std::io::Write; // need to import this trait
+use std::{fmt, fs::File, process::exit};
+use tokio::time::Instant;
 
 #[derive(Parser, Debug, Clone)]
 struct Args {
@@ -15,18 +19,22 @@ struct Args {
 
     /// How long the test should last for (seconds).
     #[arg(short, long, default_value = "30")]
-    test_time: u8,
+    test_time: u16,
 
     /// Any request headers to send with the request
     #[arg(short = 'x', long)]
-    headers: Option<String>,
+    headers: Vec<String>,
 
     // todo: validate
     #[arg(short, long, default_value = "GET")]
     /// HTTP method to use
     method: String,
 
-    /// Debug
+    #[arg(short, long)]
+    /// File to write logs to
+    out_file: Option<String>,
+
+    /// Perform some additional debug logging
     #[arg(short, long)]
     debug: bool,
 }
@@ -37,18 +45,10 @@ struct Results {
     elapsed: u128,
 }
 
-struct Test {
-    url: String,
-    method: String,
-    start_time: u8,
-}
-
-impl Test {
-    /*
-    pub fn new(url: String, method: String) -> Self {
-        Self {url, method}
+impl Results {
+    pub fn to_csv_line(&self) -> String {
+        format!("{},{}", self.response_code, self.elapsed)
     }
-    */
 }
 
 #[derive(Debug)]
@@ -63,91 +63,121 @@ impl fmt::Display for Message {
     }
 }
 
-fn get_headers(headers_raw: Option<String>) -> Option<HeaderMap> {
+const CSV_HEADER: &str = "host,status_code,time_millis";
+
+fn get_headers(headers: Vec<String>) -> HeaderMap {
     let mut map = HeaderMap::new();
 
-    if headers_raw.is_none() {
-        return None;
+    for pair in headers {
+        let split = pair.split(": ").map(String::from).collect::<Vec<_>>();
+
+        if split.len() != 2 {
+            continue;
+        }
+
+        let header_name = HeaderName::from_lowercase(split[0].to_lowercase().as_bytes()).unwrap();
+        let header_value = HeaderValue::from_str(&split[1]).unwrap();
+
+        map.insert(header_name, header_value);
     }
 
-    let split = headers_raw.unwrap().split(": ").map(String::from).collect::<Vec<_>>();
+    map
+}
 
-    if split.len() != 2 {
-        return None;
+fn write_results(out_file: String, host: String, results: Vec<Results>) {
+    let mut buffer = File::create(out_file).expect("Unable to open file");
+
+    writeln!(buffer, "{}", CSV_HEADER).expect("Unable to write to file");
+    for result in results {
+        writeln!(buffer, "{},{}", host, result.to_csv_line())
+            .expect("Unable to write line to file");
+    }
+}
+
+struct TestEndpoint {
+    method: Method,
+    endpoint: Url,
+    headers: HeaderMap,
+    pub client: Client,
+}
+
+impl TestEndpoint {
+    pub fn new(method: Method, endpoint: Url, headers: HeaderMap) -> Self {
+        let client = Client::new();
+        Self {
+            method,
+            endpoint,
+            headers,
+            client,
+        }
     }
 
-    let header_name = HeaderName::from_lowercase(split[0].as_bytes()).unwrap();
+    pub fn create_request(&self) -> Request {
+        let req = self
+            .client
+            .request(self.method.clone(), self.endpoint.clone())
+            .headers(self.headers.clone())
+            .build();
 
-    map.insert(header_name, HeaderValue::from_str(&split[1]).unwrap());
+        if req.is_err() {
+            std::process::exit(1);
+        }
 
-    println!("{:?}", map);
+        req.unwrap()
+    }
+}
 
-    Some(map)
-
+fn string_to_method(str_method: &str) -> Option<Method> {
+    match str_method.to_ascii_uppercase().as_str() {
+        "GET" => Some(Method::GET),
+        "POST" => Some(Method::POST),
+        "PATCH" => Some(Method::PATCH),
+        "PUT" => Some(Method::PUT),
+        "DELETE" => Some(Method::DELETE),
+        _ => None,
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+
     if args.debug {
         println!("{:#?}", args);
     }
 
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-
-    let mut threads = Vec::new();
-
-    let method = match args.method.to_ascii_uppercase().as_str() {
-        "GET" => Method::GET,
-        "POST" => Method::POST,
-        "PATCH" => Method::PATCH,
-        "PUT" => Method::PUT,
-        "DELETE" => Method::DELETE,
-        _ => {
-            println!("Unacceptable method: {}", args.method);
-            exit(1);
-        }
-    };
-
+    let method = string_to_method(args.method.as_str()).unwrap_or(Method::GET);
     let full_headers = get_headers(args.headers);
+
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut threads = Vec::new();
 
     let test_begin = Instant::now();
     for _ in 0..args.concurrent_requests {
         let tx_thread = tx.clone();
-        let req_url_orig = Url::parse(args.url.as_str()).unwrap().clone();
+        let req_url = Url::parse(args.url.as_str()).unwrap();
 
-        let headers = full_headers.clone().unwrap_or_default();
+        let test_client = TestEndpoint::new(method.clone(), req_url, full_headers.clone());
 
-        let req_method_orig = method.clone();
         let handle = tokio::spawn(async move {
-
-            let client = Client::new();
             loop {
-                let req_headers_raw = headers.clone();
-                let req_url = req_url_orig.clone();
-                let req_method = req_method_orig.clone();
-                let now = Instant::now();
-                let since = now.duration_since(test_begin);
+                let req = test_client.create_request();
 
-                // do test
-                let req_begin = Instant::now();
-                //let req = Request::new(req_method, req_url);
-                let req = client.request(req_method, req_url);
-                let with_headers = req.headers(req_headers_raw);
-                let ready_req = with_headers.build().unwrap();
-                let resp = client.execute(ready_req).await.unwrap();
-                let req_after = Instant::now();
+                let transaction_begin = Instant::now();
+                let resp = test_client.client.execute(req).await;
+                let transaction_end = Instant::now().duration_since(transaction_begin);
 
-                // record result
-                let since_req = req_after.duration_since(req_begin);
-                let result = Results {
-                    response_code: resp.status().as_u16(),
-                    elapsed: since_req.as_millis(),
-                };
+                if let Ok(test_resp) = resp {
+                    let msg = Message::Result(Results {
+                        response_code: test_resp.status().as_u16(),
+                        elapsed: transaction_end.as_millis(),
+                    });
 
-                let msg = Message::Result(result);
-                tx_thread.send(msg).unwrap();
+                    tx_thread.send(msg).unwrap();
+                }
 
+                let since = Instant::now().duration_since(test_begin);
                 if since.as_secs() >= args.test_time.into() {
                     tx_thread.send(Message::Finished).unwrap();
                     break;
@@ -171,22 +201,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if waiting_threads == 0 {
             println!("killing threads");
-
             rx.close();
         }
     }
 
     let total_requests = results.len();
 
-    // print results
-    println!("host,status_code,time_millis");
-    for result in results {
-        println!(
-            "{},{},{}",
-            args.url,
-            result.response_code,
-            result.elapsed,
-        );
+    if let Some(out_file) = args.out_file {
+        write_results(out_file, args.url, results);
+    } else {
+        // print results
+        println!("{}", CSV_HEADER);
+        for result in results {
+            println!("{},{},{}", args.url, result.response_code, result.elapsed,);
+        }
     }
 
     let test_end = Instant::now();
@@ -194,7 +222,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let since_secs = since_test.as_secs_f64();
     let total_reqs = total_requests as f64;
-    
+
     let tps = total_reqs / since_secs;
 
     println!();
