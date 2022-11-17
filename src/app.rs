@@ -4,7 +4,7 @@ pub struct App {
     host: String,
     headers: Vec<String>,
     method: String,
-    average_response_time: u128,
+    average_response_time: f64,
     total_responses: u128,
     // [2xx, 3xx, 4xx, 5xx]
     results: [u16; 4],
@@ -37,8 +37,10 @@ impl App {
         let index = code_usize / 100;
         self.results[index] += 1;
         self.total_responses += 1;
-        self.average_response_time =
-            (self.average_response_time + response_time) / self.total_responses;
+
+        let response_float = response_time as f64;
+        self.average_response_time = 
+            (self.average_response_time + response_float) / self.total_responses.into();
 
         if Instant::now().duration_since(self.previous_redraw_time) >= self.redraw_interval {
             self.draw_ui();
@@ -74,6 +76,8 @@ impl App {
             println!("{}: {}", code, count);
             code_prefix += 1;
         }
+
+        println!("Average response time: {}", self.average_response_time);
 
         println!("\n\n\n")
     }
