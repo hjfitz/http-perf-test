@@ -5,6 +5,8 @@ Generate a load on any server.
 
 ## Usage
 
+**Note:** Releases aren't generated. To build this, clone the repo and run `cargo build -r`. Move the compiled code (`target/release/perf-test`) to your `$PATH`
+
 ```
 Usage: perf-test [OPTIONS] --url <URL>
 
@@ -26,3 +28,4 @@ Options:
   -h, --help
           Print help information
 ```
+
