@@ -1,11 +1,14 @@
+mod app;
 use clap::Parser;
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue},
     Client, Method, Request, Url,
 };
 use std::io::Write; // need to import this trait
-use std::{fmt, fs::File, process::exit};
+use std::{fmt, fs::File};
 use tokio::time::Instant;
+
+use crate::app::App;
 
 #[derive(Parser, Debug, Clone)]
 struct Args {
@@ -43,11 +46,12 @@ struct Args {
 struct Results {
     response_code: u16,
     elapsed: u128,
+    body: String,
 }
 
 impl Results {
     pub fn to_csv_line(&self) -> String {
-        format!("{},{}", self.response_code, self.elapsed)
+        format!("{},{}, {}", self.response_code, self.elapsed, self.body)
     }
 }
 
@@ -63,7 +67,7 @@ impl fmt::Display for Message {
     }
 }
 
-const CSV_HEADER: &str = "host,status_code,time_millis";
+const CSV_HEADER: &str = "host,status_code,time_millis,body";
 
 fn get_headers(headers: Vec<String>) -> HeaderMap {
     let mut map = HeaderMap::new();
@@ -146,9 +150,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{:#?}", args);
     }
 
+    let mut app = App::new(args.url.clone(), args.headers.clone(), args.method.clone());
+
     let method = string_to_method(args.method.as_str()).unwrap_or(Method::GET);
     let full_headers = get_headers(args.headers);
-
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut threads = Vec::new();
@@ -172,6 +177,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let msg = Message::Result(Results {
                         response_code: test_resp.status().as_u16(),
                         elapsed: transaction_end.as_millis(),
+                        body: test_resp.text().await.unwrap_or_default(),
                     });
 
                     tx_thread.send(msg).unwrap();
@@ -188,11 +194,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         threads.push(handle);
     }
 
+    // create a thread for the ui
+    // on some result in the while-let-some below, send that to the ui thread, which should then
+    // update the app ui - less blocking this way
+
     let mut results = Vec::new();
     let mut waiting_threads = args.concurrent_requests;
     while let Some(msg) = rx.recv().await {
         match msg {
-            Message::Result(result) => results.push(result),
+            Message::Result(result) => {
+                app.update_state(result.response_code, result.elapsed);
+                results.push(result);
+            }
             Message::Finished => {
                 waiting_threads -= 1;
                 println!("Threads waiting to finish: {}", waiting_threads);
@@ -207,15 +220,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let total_requests = results.len();
 
-    if let Some(out_file) = args.out_file {
-        write_results(out_file, args.url, results);
-    } else {
-        // print results
-        println!("{}", CSV_HEADER);
-        for result in results {
-            println!("{},{},{}", args.url, result.response_code, result.elapsed,);
-        }
-    }
+    let out_file = args.out_file.unwrap_or_else(|| "./out.csv".to_string());
+    write_results(out_file, args.url, results);
 
     let test_end = Instant::now();
     let since_test = test_end.duration_since(test_begin);
