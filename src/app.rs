@@ -1,4 +1,39 @@
-use std::time::{Duration, Instant};
+use tui::{
+    backend::{Backend, CrosstermBackend},
+    style::Color,
+    style::{Modifier, Style},
+    text::{Span, Spans},
+    widgets::{BarChart, Block, Borders, Paragraph},
+    Frame, Terminal,
+};
+
+use std::{
+    io,
+    time::{Duration, Instant},
+};
+
+use crossterm::terminal::enable_raw_mode;
+use crossterm::{event::EnableMouseCapture, execute, terminal::EnterAlternateScreen};
+
+use crate::ui::{create_layout, AppLayout};
+
+pub struct UI {
+    pub term: Terminal<CrosstermBackend<io::Stdout>>,
+}
+
+impl UI {
+    pub fn new() -> Self {
+        let stdout = io::stdout();
+        let backend = CrosstermBackend::new(stdout);
+        let term = Terminal::new(backend).unwrap();
+        Self { term }
+    }
+
+    pub fn init_ui(&mut self) {
+        enable_raw_mode().unwrap();
+        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture).unwrap();
+    }
+}
 
 pub struct App {
     host: String,
@@ -12,6 +47,7 @@ pub struct App {
     // tui specifics
     redraw_interval: Duration,
     previous_redraw_time: Instant,
+    ui: UI,
 }
 
 impl App {
@@ -20,7 +56,9 @@ impl App {
 
         let redraw_interval = Duration::from_secs(1);
         let previous_redraw_time = Instant::now();
+        let ui = UI::new();
         Self {
+            ui,
             host,
             headers,
             method,
@@ -44,9 +82,61 @@ impl App {
             (self.average_response_time + response_float) / total_responses_float;
 
         if Instant::now().duration_since(self.previous_redraw_time) >= self.redraw_interval {
-            self.draw_ui();
+           // self.draw_ui();
+            self.ui.term.draw(|f| self.draw_term_ui(f));
             self.previous_redraw_time = Instant::now();
         }
+    }
+
+    pub fn init_ui(&mut self) {
+        self.ui.init_ui();
+    }
+
+    fn draw_term_ui<B: Backend>(&mut self, f: &mut Frame<B>) {
+        let AppLayout {
+            bar_width,
+            details_area,
+            headers_area,
+            chart_area,
+            stats_area,
+        } = create_layout(f);
+
+        let details_block = Paragraph::new(vec![
+            Spans::from(Span::raw(format!(" Host: {}", self.host))),
+            Spans::from(Span::raw(format!(" Method: {}", self.method))),
+        ])
+        .block(Block::default().title("Details").borders(Borders::ALL));
+
+        let mut max = 0;
+        for result in self.results {
+            if result > max {
+                max = result;
+            }
+        }
+        let [twoxx, threexx, fourxx, fivexx] = self.results.map(u64::from);
+        let chart_data = &[
+                ("2xx", twoxx),
+                ("3xx", threexx),
+                ("4xx", fourxx),
+                ("5xx", fivexx),
+            ];
+        let chart_bars = BarChart::default()
+            .block(Block::default().title("Responses").borders(Borders::ALL))
+            .bar_gap(1)
+            .bar_style(Style::default().fg(Color::White).bg(Color::Black))
+            .value_style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .label_style(Style::default().fg(Color::White))
+            .bar_width(bar_width)
+            .data(chart_data)
+            .max(max.into());
+
+        f.render_widget(details_block, details_area);
+        f.render_widget(chart_bars, chart_area);
     }
 
     fn draw_ui(&mut self) {

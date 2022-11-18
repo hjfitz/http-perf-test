@@ -1,4 +1,5 @@
 mod app;
+mod ui;
 use clap::Parser;
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue},
@@ -194,6 +195,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // create a thread for the ui
     let mut app = App::new(args.url.clone(), args.headers.clone(), args.method.clone());
+    app.init_ui();
     let (app_tx, mut app_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
     let app_thread = tokio::spawn(async move {
         'ui: loop {
@@ -226,7 +228,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if waiting_threads == 0 {
-            app_tx.send(Message::Finished);
+            app_tx.send(Message::Finished)?;
             rx.close();
         }
     }
