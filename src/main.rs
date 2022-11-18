@@ -42,7 +42,7 @@ struct Args {
     debug: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Results {
     response_code: u16,
     elapsed: u128,
@@ -150,10 +150,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{:#?}", args);
     }
 
-    let mut app = App::new(args.url.clone(), args.headers.clone(), args.method.clone());
-
     let method = string_to_method(args.method.as_str()).unwrap_or(Method::GET);
-    let full_headers = get_headers(args.headers);
+    let full_headers = get_headers(args.headers.clone());
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut threads = Vec::new();
@@ -195,6 +193,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // create a thread for the ui
+    let mut app = App::new(args.url.clone(), args.headers.clone(), args.method.clone());
+    let (app_tx, mut app_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
+    let app_thread = tokio::spawn(async move {
+        'ui: loop {
+            let possible_message = app_rx.try_recv();
+            if let Ok(new_message) = possible_message {
+                match new_message {
+                    Message::Result(state_fragment) => {
+                        app.update_state(state_fragment.response_code, state_fragment.elapsed)
+                    }
+                    Message::Finished => break 'ui,
+                };
+            }
+        }
+    });
     // on some result in the while-let-some below, send that to the ui thread, which should then
     // update the app ui - less blocking this way
 
@@ -203,21 +216,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(msg) = rx.recv().await {
         match msg {
             Message::Result(result) => {
-                app.update_state(result.response_code, result.elapsed);
+                //app.update_state(result.response_code, result.elapsed);
+                app_tx.send(Message::Result(result.clone())).unwrap();
                 results.push(result);
             }
             Message::Finished => {
                 waiting_threads -= 1;
-                println!("Threads waiting to finish: {}", waiting_threads);
             }
         }
 
         if waiting_threads == 0 {
-            println!("killing threads");
+            app_tx.send(Message::Finished);
             rx.close();
         }
     }
 
+    app_thread.await.unwrap();
     let total_requests = results.len();
 
     let out_file = args.out_file.unwrap_or_else(|| "./out.csv".to_string());

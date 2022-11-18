@@ -5,7 +5,7 @@ pub struct App {
     headers: Vec<String>,
     method: String,
     average_response_time: f64,
-    total_responses: u128,
+    total_responses: u64,
     // [2xx, 3xx, 4xx, 5xx]
     results: [u16; 4],
 
@@ -26,7 +26,7 @@ impl App {
             method,
             results,
             total_responses: 0,
-            average_response_time: 0,
+            average_response_time: 0.0,
             redraw_interval,
             previous_redraw_time,
         }
@@ -34,13 +34,14 @@ impl App {
 
     pub fn update_state(&mut self, code: u16, response_time: u128) {
         let code_usize = code as usize;
-        let index = code_usize / 100;
+        let index = (code_usize / 100) - 2;
         self.results[index] += 1;
         self.total_responses += 1;
 
         let response_float = response_time as f64;
-        self.average_response_time = 
-            (self.average_response_time + response_float) / self.total_responses.into();
+        let total_responses_float = self.total_responses as f64;
+        self.average_response_time =
+            (self.average_response_time + response_float) / total_responses_float;
 
         if Instant::now().duration_since(self.previous_redraw_time) >= self.redraw_interval {
             self.draw_ui();
