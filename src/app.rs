@@ -3,8 +3,7 @@ use tui::{
     style::Color,
     style::{Modifier, Style},
     text::{Span, Spans},
-    widgets::{BarChart, Block, Borders, Paragraph},
-    Frame, Terminal,
+    widgets::{BarChart, Block, Borders, Paragraph}, Terminal,
 };
 
 use std::{

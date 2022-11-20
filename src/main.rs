@@ -198,7 +198,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.url.clone(),
         args.headers.clone(),
         args.method.clone(),
-        test_begin.clone(),
+        test_begin,
     );
     app.ui.init_ui();
     let (app_tx, mut app_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();

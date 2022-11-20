@@ -1,17 +1,10 @@
-use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
-use std::{io, thread, time::Duration};
+
+
 use tui::{
-    backend::{Backend, CrosstermBackend},
+    backend::{Backend},
     layout::Rect,
-    style::Color,
-    style::{Modifier, Style},
-    text::{Span, Spans},
-    widgets::{BarChart, Block, Borders, Paragraph},
-    Frame, Terminal,
+    widgets::{Block, Borders},
+    Frame,
 };
 
 pub struct AppLayout {
@@ -90,11 +83,11 @@ pub fn create_layout<B: Backend>(f: &Frame<B>) -> AppLayout {
     }
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>) {
-    let details_block = Block::default().title("Details").borders(Borders::ALL);
-    let headers_block = Block::default().borders(Borders::ALL);
-    let stats_block = Block::default().title("Block").borders(Borders::ALL);
-    let chart_block = Block::default().title("Stats").borders(Borders::ALL);
+fn ui<B: Backend>(_f: &mut Frame<B>) {
+    let _details_block = Block::default().title("Details").borders(Borders::ALL);
+    let _headers_block = Block::default().borders(Borders::ALL);
+    let _stats_block = Block::default().title("Block").borders(Borders::ALL);
+    let _chart_block = Block::default().title("Stats").borders(Borders::ALL);
 
     /*
     f.render_widget(para, details_area);
