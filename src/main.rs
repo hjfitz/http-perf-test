@@ -7,7 +7,7 @@ use reqwest::{
 };
 use std::io::Write; // need to import this trait
 use std::{fmt, fs::File};
-use tokio::time::Instant;
+use std::time::Instant;
 
 use crate::app::App;
 
@@ -194,8 +194,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // create a thread for the ui
-    let mut app = App::new(args.url.clone(), args.headers.clone(), args.method.clone());
-    app.init_ui();
+    let mut app = App::new(args.url.clone(), args.headers.clone(), args.method.clone(), test_begin.clone());
+    app.ui.init_ui();
     let (app_tx, mut app_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
     let app_thread = tokio::spawn(async move {
         'ui: loop {
@@ -205,7 +205,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Message::Result(state_fragment) => {
                         app.update_state(state_fragment.response_code, state_fragment.elapsed)
                     }
-                    Message::Finished => break 'ui,
+                    Message::Finished => {
+                        app.ui.restore_ui();
+                        break 'ui;
+                    }
                 };
             }
         }
@@ -239,8 +242,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let out_file = args.out_file.unwrap_or_else(|| "./out.csv".to_string());
     write_results(out_file, args.url, results);
 
-    let test_end = Instant::now();
-    let since_test = test_end.duration_since(test_begin);
+    let since_test = Instant::now().duration_since(test_begin);
 
     let since_secs = since_test.as_secs_f64();
     let total_reqs = total_requests as f64;

@@ -51,7 +51,7 @@ pub fn create_layout<B: Backend>(f: &Frame<B>) -> AppLayout {
         ..
     } = f.size();
 
-    let bar_width = ((frame_width / 2) - 4) / 4;
+    let bar_width = ((frame_width / 2) - 5) / 4;
 
     let details_area = Rect {
         y: 0,
