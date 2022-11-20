@@ -147,8 +147,12 @@ impl App {
             ok_results = 1;
         }
         let error_perc = (self.results[2] + self.results[3]) / ok_results;
-        let stats_line = format!("Average TPS: {:.2}  |  Average response time (ms): {:.2}  |  Error Percentage: {:.2}", avg_tps, self.average_response_time, error_perc);
-        let stats_block = Paragraph::new(Spans::from(Span::raw(stats_line))).block(Block::default().title("Stats").borders(Borders::ALL));
+        let stats_line = format!(
+            "Average TPS: {:.2}  |  Average response time (ms): {:.2}  |  Error Percentage: {:.2}",
+            avg_tps, self.average_response_time, error_perc
+        );
+        let stats_block = Paragraph::new(Spans::from(Span::raw(stats_line)))
+            .block(Block::default().title("Stats").borders(Borders::ALL));
 
         let mut max = 0;
         for result in self.results {
@@ -187,39 +191,5 @@ impl App {
                 f.render_widget(stats_block, stats_area);
             })
             .unwrap();
-    }
-
-    fn draw_ui(&mut self) {
-        print!("{esc}c", esc = 27 as char);
-        println!("Host: {}", self.host);
-        println!("Method: {}", self.method);
-
-        if !self.headers.is_empty() {
-            let pretty_headers = self
-                .headers
-                .iter_mut()
-                .map(|header| {
-                    let split_headers = header.split(": ").map(String::from).collect::<Vec<_>>();
-                    let header_name = &split_headers[0];
-                    let truncated_header_value = split_headers[1].as_str()[..12].to_string();
-                    format!("{}: {}", header_name, truncated_header_value)
-                })
-                .collect::<Vec<String>>()
-                .join("\n");
-
-            println!("Headers:");
-            println!("{}", pretty_headers);
-        }
-
-        let mut code_prefix = 2;
-        for count in self.results {
-            let code = format!("{}XX", code_prefix);
-            println!("{}: {}", code, count);
-            code_prefix += 1;
-        }
-
-        println!("Average response time: {}", self.average_response_time);
-
-        println!("\n\n\n")
     }
 }

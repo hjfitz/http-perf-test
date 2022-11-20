@@ -6,8 +6,8 @@ use reqwest::{
     Client, Method, Request, Url,
 };
 use std::io::Write; // need to import this trait
-use std::{fmt, fs::File};
 use std::time::Instant;
+use std::{fmt, fs::File};
 
 use crate::app::App;
 
@@ -194,7 +194,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // create a thread for the ui
-    let mut app = App::new(args.url.clone(), args.headers.clone(), args.method.clone(), test_begin.clone());
+    let mut app = App::new(
+        args.url.clone(),
+        args.headers.clone(),
+        args.method.clone(),
+        test_begin.clone(),
+    );
     app.ui.init_ui();
     let (app_tx, mut app_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
     let app_thread = tokio::spawn(async move {
