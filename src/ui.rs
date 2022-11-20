@@ -6,6 +6,7 @@ pub struct AppLayout {
     pub chart_area: Rect,
     pub stats_area: Rect,
     pub bar_width: u16,
+    pub col_max_width: u16,
 }
 
 #[allow(unused_doc_comments)]
@@ -36,6 +37,8 @@ pub fn create_layout<B: Backend>(f: &Frame<B>) -> AppLayout {
         height: frame_height,
         ..
     } = f.size();
+
+    let col_max_width = (frame_width / 2) - 4;
 
     let bar_width = ((frame_width / 2) - 5) / 4;
 
@@ -69,6 +72,7 @@ pub fn create_layout<B: Backend>(f: &Frame<B>) -> AppLayout {
 
     AppLayout {
         bar_width,
+        col_max_width,
         details_area,
         headers_area,
         chart_area,

@@ -20,25 +20,31 @@ use crossterm::{event::EnableMouseCapture, execute, terminal::EnterAlternateScre
 
 use crate::ui::{create_layout, AppLayout};
 
+pub trait UIHandler {
+    fn new() -> Self;
+    fn restore_ui(&mut self);
+    fn init_ui(&mut self);
+}
+
 pub struct UI {
     pub term: Terminal<CrosstermBackend<io::Stdout>>,
 }
 
-impl UI {
-    pub fn new() -> Self {
+impl UIHandler for UI {
+    fn new() -> Self {
         let stdout = io::stdout();
         let backend = CrosstermBackend::new(stdout);
         let term = Terminal::new(backend).unwrap();
         Self { term }
     }
 
-    pub fn init_ui(&mut self) {
+    fn init_ui(&mut self) {
         enable_raw_mode().unwrap();
         self.term.clear().unwrap();
         execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture).unwrap();
     }
 
-    pub fn restore_ui(&mut self) {
+    fn restore_ui(&mut self) {
         // restore terminal
         disable_raw_mode().unwrap();
         execute!(
@@ -116,6 +122,7 @@ impl App {
             headers_area,
             chart_area,
             stats_area,
+            col_max_width,
         } = create_layout(&f);
 
         let details_block = Paragraph::new(vec![
@@ -128,7 +135,7 @@ impl App {
             .headers
             .iter()
             .map(|full_pair| {
-                return Spans::from(Span::raw(format!("> {}", full_pair.clone())));
+                return Spans::from(Span::raw(format!("> {:w$}", full_pair.clone(), w = col_max_width.into())));
             })
             .collect::<Vec<_>>();
 

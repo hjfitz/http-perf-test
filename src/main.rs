@@ -9,7 +9,7 @@ use std::io::Write; // need to import this trait
 use std::time::Instant;
 use std::{fmt, fs::File};
 
-use crate::app::App;
+use crate::app::{App, UIHandler};
 
 #[derive(Parser, Debug, Clone)]
 struct Args {
