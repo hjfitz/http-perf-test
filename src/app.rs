@@ -1,9 +1,10 @@
 use tui::{
-    backend::{Backend, CrosstermBackend},
+    backend::CrosstermBackend,
     style::Color,
     style::{Modifier, Style},
     text::{Span, Spans},
-    widgets::{BarChart, Block, Borders, Paragraph}, Terminal,
+    widgets::{BarChart, Block, Borders, Paragraph},
+    Terminal,
 };
 
 use std::{
@@ -33,7 +34,7 @@ impl UI {
 
     pub fn init_ui(&mut self) {
         enable_raw_mode().unwrap();
-        self.term.clear();
+        self.term.clear().unwrap();
         execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture).unwrap();
     }
 
@@ -46,7 +47,7 @@ impl UI {
             DisableMouseCapture
         )
         .unwrap();
-        self.term.clear();
+        self.term.clear().unwrap();
         self.term.show_cursor().unwrap();
     }
 }

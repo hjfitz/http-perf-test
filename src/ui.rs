@@ -1,11 +1,4 @@
-
-
-use tui::{
-    backend::{Backend},
-    layout::Rect,
-    widgets::{Block, Borders},
-    Frame,
-};
+use tui::{backend::Backend, layout::Rect, Frame};
 
 pub struct AppLayout {
     pub details_area: Rect,
@@ -81,18 +74,4 @@ pub fn create_layout<B: Backend>(f: &Frame<B>) -> AppLayout {
         chart_area,
         stats_area,
     }
-}
-
-fn ui<B: Backend>(_f: &mut Frame<B>) {
-    let _details_block = Block::default().title("Details").borders(Borders::ALL);
-    let _headers_block = Block::default().borders(Borders::ALL);
-    let _stats_block = Block::default().title("Block").borders(Borders::ALL);
-    let _chart_block = Block::default().title("Stats").borders(Borders::ALL);
-
-    /*
-    f.render_widget(para, details_area);
-    f.render_widget(headers_block, headers_area);
-    f.render_widget(chart_bars, chart_area);
-    f.render_widget(stats_block, stats_area);
-    */
 }
