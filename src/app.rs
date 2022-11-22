@@ -3,7 +3,7 @@ use tui::{
     style::Color,
     style::{Modifier, Style},
     text::{Span, Spans},
-    widgets::{BarChart, Block, Borders, Paragraph},
+    widgets::{BarChart, Block, Borders, Paragraph, Sparkline},
     Terminal,
 };
 
@@ -18,7 +18,10 @@ use crossterm::{
 };
 use crossterm::{event::EnableMouseCapture, execute, terminal::EnterAlternateScreen};
 
-use crate::ui::{create_layout, AppLayout};
+use crate::{
+    args::Args,
+    ui::{create_layout, AppLayout},
+};
 
 pub trait UIHandler {
     fn new() -> Self;
@@ -59,14 +62,14 @@ impl UIHandler for UI {
 }
 
 pub struct App {
-    host: String,
-    headers: Vec<String>,
-    method: String,
+    program_args: Args,
+    // metrics
     average_response_time: f64,
     total_responses: u64,
     test_begin: Instant,
     // [2xx, 3xx, 4xx, 5xx]
     results: [u16; 4],
+    response_times: Vec<u128>, // BoundedVec<u128>,
 
     // tui specifics
     redraw_interval: Duration,
@@ -75,7 +78,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(host: String, headers: Vec<String>, method: String, test_begin: Instant) -> Self {
+    pub fn new(test_begin: Instant, args: Args) -> Self {
         let results: [u16; 4] = [0, 0, 0, 0];
 
         let redraw_interval = Duration::from_secs(1);
@@ -83,12 +86,11 @@ impl App {
         let ui = UI::new();
         Self {
             ui,
-            host,
-            headers,
             test_begin,
-            method,
             results,
+            program_args: args,
             total_responses: 0,
+            response_times: Vec::new(), //BoundedVec::new(Some(25)),
             average_response_time: 0.0,
             redraw_interval,
             previous_redraw_time,
@@ -106,6 +108,8 @@ impl App {
         self.average_response_time =
             (self.average_response_time + response_float) / total_responses_float;
 
+        self.response_times.push(response_time);
+
         if Instant::now().duration_since(self.previous_redraw_time) >= self.redraw_interval {
             // self.draw_ui();
             //self.ui.term.draw(|f| self.draw_term_ui(f));
@@ -115,6 +119,7 @@ impl App {
     }
 
     fn draw_term_ui(&mut self) {
+        let header_line_length = self.program_args.headers.len() + 1;
         let f = self.ui.term.get_frame();
         let AppLayout {
             bar_width,
@@ -123,24 +128,36 @@ impl App {
             chart_area,
             stats_area,
             col_max_width,
-        } = create_layout(&f);
-
-        let details_block = Paragraph::new(vec![
-            Spans::from(Span::raw(format!(" Host: {}", self.host))),
-            Spans::from(Span::raw(format!(" Method: {}", self.method))),
-        ])
-        .block(Block::default().title("Details").borders(Borders::ALL));
+        } = create_layout(&f, header_line_length as u16);
 
         let headers_lines = self
+            .program_args
             .headers
             .iter()
             .map(|full_pair| {
-                return Spans::from(Span::raw(format!("> {:w$}", full_pair.clone(), w = col_max_width.into())));
+                return Spans::from(Span::raw(format!(
+                    " > {:w$}",
+                    full_pair.clone(),
+                    w = col_max_width.into()
+                )));
             })
             .collect::<Vec<_>>();
 
-        let headers_block = Paragraph::new(headers_lines)
-            .block(Block::default().title("Headers").borders(Borders::ALL));
+        let details = vec![
+            Spans::from(Span::raw(format!(" Host: {}", self.program_args.url))),
+            Spans::from(Span::raw(format!(" Method: {}", self.program_args.method))),
+            Spans::from(Span::raw(format!(
+                " Concurrent Requests: {}",
+                self.program_args.concurrent_requests
+            ))),
+            Spans::from(Span::raw(" Headers: ")),
+        ];
+
+        let details_block = Paragraph::new([details, headers_lines].concat()).block(
+            Block::default()
+                .title("Session Details")
+                .borders(Borders::ALL),
+        );
 
         let time_taken = Instant::now().duration_since(self.test_begin).as_secs_f32();
         let mut total_requests = 0_f32;
@@ -155,7 +172,7 @@ impl App {
         }
         let error_perc = (self.results[2] + self.results[3]) / ok_results;
         let stats_line = format!(
-            "Average TPS: {:.2}  |  Average response time (ms): {:.2}  |  Error Percentage: {:.2}",
+            "Average TPS: {:.2}  |  Average response time: {:.2}ms  |  Error Percentage: {:.4}%",
             avg_tps, self.average_response_time, error_perc
         );
         let stats_block = Paragraph::new(Spans::from(Span::raw(stats_line)))
@@ -189,12 +206,37 @@ impl App {
             .data(chart_data)
             .max(max.into());
 
+
+        let mut response_time_data = self.response_times.clone();
+        response_time_data.reverse();
+        let max_len = usize::from(headers_area.width - 2);
+        let total_responses = response_time_data.len();
+        let bound = if max_len >= total_responses {
+            total_responses
+        } else {
+            max_len
+        };
+        let response_time_data_subset = &mut response_time_data[0..bound];
+
+        let sparkline_data = response_time_data_subset
+            .iter_mut()
+            .map(|n| *n as u64)
+            .collect::<Vec<u64>>();
+     
+        let test = Sparkline::default()
+            .block(
+                Block::default()
+                    .title("Response Time Variation")
+                    .borders(Borders::ALL),
+            )
+            .data(sparkline_data.as_slice());
+
         self.ui
             .term
             .draw(|f| {
                 f.render_widget(details_block, details_area);
                 f.render_widget(chart_bars, chart_area);
-                f.render_widget(headers_block, headers_area);
+                f.render_widget(test, headers_area);
                 f.render_widget(stats_block, stats_area);
             })
             .unwrap();

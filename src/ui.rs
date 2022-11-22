@@ -31,7 +31,7 @@ pub struct AppLayout {
  * |                                                            |
  * |------------------------------------------------------------|
  */
-pub fn create_layout<B: Backend>(f: &Frame<B>) -> AppLayout {
+pub fn create_layout<B: Backend>(f: &Frame<B>, header_frame_height: u16) -> AppLayout {
     let Rect {
         width: frame_width,
         height: frame_height,
@@ -41,19 +41,20 @@ pub fn create_layout<B: Backend>(f: &Frame<B>) -> AppLayout {
     let col_max_width = (frame_width / 2) - 4;
 
     let bar_width = ((frame_width / 2) - 5) / 4;
+    let details_height = 5 + header_frame_height;
 
     let details_area = Rect {
         y: 0,
         x: 0,
         width: (frame_width / 2),
-        height: 4,
+        height: details_height,
     };
 
     let headers_area = Rect {
-        y: 4,
+        y: details_height,
         x: 0,
         width: (frame_width / 2),
-        height: frame_height - 7,
+        height: frame_height - (details_height + 3),
     };
 
     let chart_area = Rect {

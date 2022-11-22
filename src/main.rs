@@ -1,5 +1,7 @@
 mod app;
+mod args;
 mod ui;
+
 use clap::Parser;
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue},
@@ -10,38 +12,7 @@ use std::time::Instant;
 use std::{fmt, fs::File};
 
 use crate::app::{App, UIHandler};
-
-#[derive(Parser, Debug, Clone)]
-struct Args {
-    /// Host to make requests to
-    #[arg(short, long)]
-    url: String,
-
-    /// How many requests to send at once
-    #[arg(short, long, default_value = "10")]
-    concurrent_requests: u16,
-
-    /// How long the test should last for (seconds).
-    #[arg(short, long, default_value = "30")]
-    test_time: u16,
-
-    /// Any request headers to send with the request
-    #[arg(short = 'x', long)]
-    headers: Vec<String>,
-
-    // todo: validate
-    #[arg(short, long, default_value = "GET")]
-    /// HTTP method to use
-    method: String,
-
-    #[arg(short, long)]
-    /// File to write logs to
-    out_file: Option<String>,
-
-    /// Perform some additional debug logging
-    #[arg(short, long)]
-    debug: bool,
-}
+use crate::args::Args;
 
 #[derive(Debug, Clone)]
 struct Results {
@@ -194,12 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // create a thread for the ui
-    let mut app = App::new(
-        args.url.clone(),
-        args.headers.clone(),
-        args.method.clone(),
-        test_begin,
-    );
+    let mut app = App::new(test_begin, args.clone());
     app.ui.init_ui();
     let (app_tx, mut app_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
     let app_thread = tokio::spawn(async move {
